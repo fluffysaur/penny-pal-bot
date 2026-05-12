@@ -8,9 +8,9 @@
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
-    "types": ["node", "vitest/globals"],
-    "rootDir": ".",
+    "types": ["node"],
+    "rootDir": "src",
     "outDir": "dist"
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }
