@@ -10,7 +10,9 @@
     "dev": "tsx src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
-    "typecheck": "tsc --noEmit",
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit -p tsconfig.typecheck.json",
+    "verify": "npm run typecheck && npm test",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -20,9 +22,13 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/debug": "^4.1.13",
     "@types/node": "^22.10.2",
+    "@types/node-fetch": "^2.6.13",
+    "@types/safe-compare": "^1.1.2",
+    "husky": "^9.1.7",
     "tsx": "^4.19.2",
-    "typescript": "^5.7.2",
+    "typescript": "^5.2.2",
     "vitest": "^2.1.8"
   }
 }
