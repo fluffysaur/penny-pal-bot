@@ -17,7 +17,7 @@ TypeScript rewrite of a Telegram expense logging bot that parses transaction ima
 ## Setup
 
 ```bash
-cd apps/expense-bot
+cd apps/penny-pal-bot
 npm install
 cp .env.template .env
 ```
@@ -29,17 +29,33 @@ cp .env.template .env
 - `EXPENSE_BOT_ALLOWED_USER_IDS`: Comma-separated Telegram user IDs allowed to use the bot
 - `EXPENSE_BOT_DEFAULT_DB_ID`: Fallback Notion database ID
 - `EXPENSE_BOT_USER_DB_MAP_JSON`: JSON object mapping user ID to Notion DB ID
+- `EXPENSE_BOT_USER_NAMES_JSON`: JSON object mapping user ID to display name
 - `EXPENSE_BOT_DB_LABELS_JSON`: JSON object mapping Notion DB ID to display label
-- `EXPENSE_BOT_PROCESS_TIMEOUT`: Timeout for process-level operations
-- `EXPENSE_BOT_HERMES_TIMEOUT`: Timeout for vision integration operations
+- `EXPENSE_BOT_PROCESS_TIMEOUT`: Process timeout in seconds (default: `300`)
+- `EXPENSE_BOT_HERMES_TIMEOUT`: Vision timeout in seconds (default: `240`)
+
+Example:
+
+```env
+TELEGRAM_TOKEN=123456:abcDEF
+NOTION_TOKEN=secret_abc123
+EXPENSE_BOT_ALLOWED_USER_IDS=12345678,87654321
+EXPENSE_BOT_DEFAULT_DB_ID=abc123def456
+EXPENSE_BOT_USER_DB_MAP_JSON={"12345678":"abc123def456"}
+EXPENSE_BOT_USER_NAMES_JSON={"12345678":"Alice"}
+EXPENSE_BOT_DB_LABELS_JSON={"abc123def456":"Personal"}
+EXPENSE_BOT_PROCESS_TIMEOUT=300
+EXPENSE_BOT_HERMES_TIMEOUT=240
+```
 
 ## Run Locally
 
 ```bash
-cd apps/expense-bot
-set -a; source .env; set +a
+cd apps/penny-pal-bot
 npm run dev
 ```
+
+The app loads `.env` automatically via `dotenv/config`.
 
 ## Build
 
@@ -47,6 +63,34 @@ npm run dev
 npm run build
 npm start
 ```
+
+## Run Persistently (PM2)
+
+Use PM2 in production so the bot restarts on crashes and server reboots.
+
+```bash
+# one-time install
+npm install -g pm2
+
+# from repo root
+cd apps/penny-pal-bot
+npm ci
+npm run build
+
+# run persistently
+pm2 start npm --name penny-pal-bot -- start
+
+# save process list and enable startup on reboot
+pm2 save
+pm2 startup
+```
+
+Common PM2 commands:
+
+- `pm2 status`
+- `pm2 logs penny-pal-bot`
+- `npm run build && pm2 restart penny-pal-bot`
+- `pm2 stop penny-pal-bot`
 
 ## Test
 
