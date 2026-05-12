@@ -144,8 +144,9 @@ export function createBot(): Telegraf {
       return;
     }
     const { dbId, label } = targetInfoForUser(userId);
+    const name = config.userNames.get(userId) ?? label;
     setSession(userId, { targetDb: dbId, targetLabel: label, pendingRows: [] });
-    await ctx.reply(`Hello, ${label}! Send me a receipt or screenshot of your transactions and I will log them for you.`);
+    await ctx.reply(`Hello, ${name}! Send me a receipt or screenshot of your transactions and I will log them for you.`);
   });
 
   bot.command("help", async (ctx) => {

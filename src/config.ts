@@ -33,6 +33,7 @@ const EnvSchema = z.object({
   EXPENSE_BOT_ALLOWED_USER_IDS: z.string().min(1),
   EXPENSE_BOT_DEFAULT_DB_ID: z.string().min(1),
   EXPENSE_BOT_USER_DB_MAP_JSON: z.string().default("{}"),
+  EXPENSE_BOT_USER_NAMES_JSON: z.string().default("{}"),
   EXPENSE_BOT_DB_LABELS_JSON: z.string().default("{}"),
   EXPENSE_BOT_PROCESS_TIMEOUT: z.coerce.number().int().positive().default(300),
   EXPENSE_BOT_HERMES_TIMEOUT: z.coerce.number().int().positive().default(240)
@@ -54,6 +55,15 @@ for (const [k, v] of Object.entries(userDbMapRaw)) {
   }
 }
 
+const userNamesRaw = parseJsonObject(env.EXPENSE_BOT_USER_NAMES_JSON, "EXPENSE_BOT_USER_NAMES_JSON");
+const userNames = new Map<number, string>();
+for (const [k, v] of Object.entries(userNamesRaw)) {
+  const userId = Number(k);
+  if (Number.isInteger(userId)) {
+    userNames.set(userId, v);
+  }
+}
+
 export const config = {
   telegramToken: env.TELEGRAM_TOKEN,
   notionToken: env.NOTION_TOKEN,
@@ -61,6 +71,7 @@ export const config = {
   dbLabels: parseJsonObject(env.EXPENSE_BOT_DB_LABELS_JSON, "EXPENSE_BOT_DB_LABELS_JSON"),
   allowedUserIds,
   userDbMap,
+  userNames,
   processTimeoutSeconds: env.EXPENSE_BOT_PROCESS_TIMEOUT,
   visionTimeoutSeconds: env.EXPENSE_BOT_HERMES_TIMEOUT
 };
