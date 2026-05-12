@@ -14,9 +14,9 @@ import type { ExpenseRow } from "../types";
 import { NotionClient } from "../integrations/notion/notionClient";
 import { fetchRelationOptionTitles, submitRowsToNotion } from "../integrations/notion/submitRows";
 import { CompositeVisionProvider } from "../integrations/vision/compositeVisionProvider";
-import { HeuristicVisionProvider } from "../integrations/vision/heuristicVisionProvider";
+import { HeuristicVisionProvider, recognizesEditInstruction } from "../integrations/vision/heuristicVisionProvider";
 import { HermesVisionProvider } from "../integrations/vision/hermesVisionProvider";
-import { downloadUrlToTempFile } from "../utils/files";
+import { cleanupTempFile, downloadUrlToTempFile } from "../utils/files";
 import {
   appendManualEntries,
   applyFieldEdit,
@@ -25,7 +25,7 @@ import {
   removeEntryAt
 } from "./flowHelpers";
 import { messages } from "./messages";
-import { editMenuKeyboard, itemFieldKeyboard, previewKeyboard, renderPreviewText } from "./formatting";
+import { editMenuKeyboard, escapeHtml, itemFieldKeyboard, previewExtra, removeItemKeyboard, renderPreviewText } from "./formatting";
 import type { UserSession } from "./sessionStore";
 import { clearSession, getSession, patchSession, setSession } from "./sessionStore";
 
@@ -34,6 +34,40 @@ const visionProvider = new CompositeVisionProvider([
   new HeuristicVisionProvider(),
   new HermesVisionProvider()
 ]);
+const PHOTO_PARSE_TIMEOUT_MS = 120 * 1000;
+
+class TimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "TimeoutError";
+  }
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof TimeoutError;
+}
+
+function startTyping(telegram: { sendChatAction(chatId: number | string, action: string): Promise<void> }, chatId: number | string, intervalMs = 4000): () => void {
+  void telegram.sendChatAction(chatId, "typing");
+  const id = setInterval(() => { void telegram.sendChatAction(chatId, "typing"); }, intervalMs);
+  return () => clearInterval(id);
+}
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new TimeoutError(message)), timeoutMs);
+      })
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  }
+}
 
 function targetInfoForUser(userId: number): { dbId: string; label: string } {
   const dbId = config.userDbMap.get(userId) ?? config.defaultDbId;
@@ -42,7 +76,7 @@ function targetInfoForUser(userId: number): { dbId: string; label: string } {
 }
 
 async function showPreview(ctx: { reply: (...args: any[]) => Promise<unknown> }, targetLabel: string, rows: ExpenseRow[]): Promise<void> {
-  await ctx.reply(renderPreviewText(targetLabel, normalizeRows(rows)), previewKeyboard());
+  await ctx.reply(renderPreviewText(targetLabel, normalizeRows(rows)), previewExtra());
 }
 
 function categoryChoiceKeyboard(
@@ -131,7 +165,7 @@ async function applyCategoryChoice(
   const original = session.pendingRows[itemIndex];
   const updatedRows = session.pendingRows.map((row, idx) => (idx === itemIndex ? { ...row, category: choice } : row));
   rememberCategoryMapping(rawCategory ?? original.category ?? "", choice);
-  const nextSession = patchSession(userId, { pendingRows: updatedRows, mode: undefined });
+  const nextSession = patchSession(userId, { pendingRows: updatedRows, mode: undefined, pendingFieldEdit: undefined });
   await showPreviewOrAskCategory(ctx, userId, nextSession, updatedRows);
 }
 
@@ -146,7 +180,7 @@ export function createBot(): Telegraf {
     const { dbId, label } = targetInfoForUser(userId);
     const name = config.userNames.get(userId) ?? label;
     setSession(userId, { targetDb: dbId, targetLabel: label, pendingRows: [] });
-    await ctx.reply(`Hello, ${name}! Send me a receipt or screenshot of your transactions and I will log them for you.`);
+    await ctx.reply(messages.welcome(name));
   });
 
   bot.command("help", async (ctx) => {
@@ -158,7 +192,7 @@ export function createBot(): Telegraf {
     if (userId) {
       clearSession(userId);
     }
-    await ctx.reply("Cancelled - no rows written.");
+    await ctx.reply(messages.cancelled);
   });
 
   bot.command("manual", async (ctx) => {
@@ -167,16 +201,12 @@ export function createBot(): Telegraf {
       return;
     }
     if (!config.allowedUserIds.has(userId)) {
-      await ctx.reply("Sorry, you are not allowed to use this bot.");
+      await ctx.reply(messages.notAllowed);
       return;
     }
     const { dbId, label } = targetInfoForUser(userId);
     patchSession(userId, { targetDb: dbId, targetLabel: label, pendingRows: [], mode: "manual_add" });
-    await ctx.reply(
-      `${label}, send one or more manual entries in either format:\n` +
-      "1) item | amount | category | date | remarks\n" +
-      "2) item amount category [date] [remarks]"
-    );
+    await ctx.reply(messages.manualPrompt(label));
   });
 
   bot.action("cancel", async (ctx) => {
@@ -185,7 +215,7 @@ export function createBot(): Telegraf {
       clearSession(userId);
     }
     await ctx.answerCbQuery();
-    await ctx.editMessageText("Cancelled - no rows written.");
+    await ctx.editMessageText(messages.cancelled);
   });
 
   bot.action("edit_mode", async (ctx) => {
@@ -240,7 +270,7 @@ export function createBot(): Telegraf {
       return;
     }
     await ctx.answerCbQuery();
-    await ctx.editMessageText(renderPreviewText(session.targetLabel, normalizeRows(session.pendingRows)), previewKeyboard());
+    await ctx.editMessageText(renderPreviewText(session.targetLabel, normalizeRows(session.pendingRows)), previewExtra());
   });
 
   bot.action(/edit_item:(\d+)/, async (ctx) => {
@@ -291,12 +321,22 @@ export function createBot(): Telegraf {
     if (field === "category") {
       const options = await fetchRelationOptionTitles(notionClient, session.targetDb);
       patch.categoryOptions = options;
+      patchSession(userId, patch);
+      await ctx.answerCbQuery();
+      if (options.length > 0) {
+        await ctx.editMessageText(
+          `Pick a category for item ${idx + 1} (<b>${escapeHtml(row.item.slice(0, 40))}</b>), or type one:`,
+          { ...categoryChoiceKeyboard(idx, options, false, false), parse_mode: "HTML" as const }
+        );
+      } else {
+        await ctx.editMessageText(`Send the new category for item ${idx + 1}. Current: ${String(row.category ?? "")}`);
+      }
+      return;
     }
     patchSession(userId, patch);
-
     const currentValue = field === "name" ? row.item : row[field];
     await ctx.answerCbQuery();
-    await ctx.editMessageText(`Send the new ${field} for item ${idx + 1}. Current value: ${String(currentValue ?? "")}`);
+    await ctx.editMessageText(`Send the new ${field} for item ${idx + 1}. Current: ${String(currentValue ?? "")}`);
   });
 
   bot.action(/edit_type:(\d+):(income|expense)/, async (ctx) => {
@@ -361,8 +401,9 @@ export function createBot(): Telegraf {
     }
 
     await ctx.answerCbQuery();
-    await ctx.editMessageText(`Hold tight, ${session.targetLabel} - updating your expense log...`);
+    await ctx.editMessageText(messages.submitInProgress(session.targetLabel));
 
+    const stopTyping = startTyping(ctx.telegram, ctx.callbackQuery.message!.chat.id);
     try {
       const options = await fetchRelationOptionTitles(notionClient, session.targetDb);
       if (hasUnresolvedCategories(session.pendingRows, options)) {
@@ -371,9 +412,11 @@ export function createBot(): Telegraf {
       }
       await submitRowsToNotion(notionClient, session.targetDb, session.pendingRows);
       clearSession(userId);
-      await ctx.reply(`Expenses logged! Thank you, ${session.targetLabel} 🤑`);
+      await ctx.reply(messages.submitSuccess(session.targetLabel));
     } catch (error) {
       await ctx.reply(`Submit failed: ${(error as Error).message}`);
+    } finally {
+      stopTyping();
     }
   });
 
@@ -408,38 +451,85 @@ export function createBot(): Telegraf {
     }
     patchSession(userId, { mode: "remove_entry", pendingFieldEdit: undefined });
     await ctx.answerCbQuery();
-    await ctx.editMessageText("Tell me which item to remove. Example: remove item 2 or just type 2");
+    await ctx.editMessageText(
+      "Pick the item to remove, or type something like 'remove item 2'.",
+      removeItemKeyboard(session.pendingRows)
+    );
+  });
+
+  bot.action(/remove_item:(\d+)/, async (ctx) => {
+    const userId = ctx.from?.id;
+    if (!userId) {
+      return;
+    }
+    const session = getSession(userId);
+    if (!session) {
+      await ctx.answerCbQuery();
+      return;
+    }
+    const idx = Number(ctx.match[1]);
+    const result = removeEntryAt(session.pendingRows, idx);
+    if (result.error) {
+      await ctx.answerCbQuery();
+      await ctx.editMessageText(result.error);
+      return;
+    }
+    const next = patchSession(userId, { pendingRows: result.rows, mode: undefined, pendingFieldEdit: undefined });
+    await ctx.answerCbQuery("Removed");
+    if (result.rows.length === 0) {
+      await ctx.editMessageText("All items removed. Send a new image or /manual entry.");
+      return;
+    }
+    await ctx.editMessageText(renderPreviewText(session.targetLabel, normalizeRows(next.pendingRows)), previewExtra());
   });
 
   bot.on("photo", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId || !config.allowedUserIds.has(userId)) {
-      await ctx.reply("Sorry, you are not allowed to use this bot.");
+      await ctx.reply(messages.notAllowed);
       return;
     }
-
-    const photo = ctx.message.photo[ctx.message.photo.length - 1];
-    const fileLink = await ctx.telegram.getFileLink(photo.file_id);
-    const tempPath = await downloadUrlToTempFile(fileLink.href, "jpg");
-
     const { dbId, label } = targetInfoForUser(userId);
     patchSession(userId, { targetDb: dbId, targetLabel: label, mode: undefined });
-    await ctx.reply(`Hello, ${label}! Give me a second to read your transactions...`);
+    await ctx.reply(messages.parseInProgress(label));
 
-    const rows = await visionProvider.parseImage(tempPath);
-    if (rows.length === 0) {
-      await ctx.reply("Parsing failed or produced no rows. Please try again.");
-      return;
+    let tempPath: string | undefined;
+    const stopTyping = startTyping(ctx.telegram, ctx.message.chat.id);
+    try {
+      const photo = ctx.message.photo[ctx.message.photo.length - 1];
+      const fileLink = await ctx.telegram.getFileLink(photo.file_id);
+      tempPath = await downloadUrlToTempFile(fileLink.href, "jpg");
+      const rows = await withTimeout(
+        visionProvider.parseImage(tempPath),
+        PHOTO_PARSE_TIMEOUT_MS,
+        "Image parsing timed out"
+      );
+      if (rows.length === 0) {
+        await ctx.reply(messages.parseNoRows);
+        return;
+      }
+
+      const session = patchSession(userId, { pendingRows: rows, targetDb: dbId, targetLabel: label, mode: undefined });
+      await showPreviewOrAskCategory(ctx, userId, session, rows);
+    } catch (error) {
+      if (isTimeoutError(error)) {
+        await ctx.reply(messages.parseTimedOut);
+        return;
+      }
+      console.error("Photo parsing failed", error);
+      await ctx.reply(messages.parseError);
+    } finally {
+      stopTyping();
+      if (tempPath) {
+        cleanupTempFile(tempPath);
+      }
     }
-
-    const session = patchSession(userId, { pendingRows: rows, targetDb: dbId, targetLabel: label, mode: undefined });
-    await showPreviewOrAskCategory(ctx, userId, session, rows);
   });
 
   bot.on("text", async (ctx) => {
     const userId = ctx.from?.id;
     if (!userId || !config.allowedUserIds.has(userId)) {
-      await ctx.reply("Sorry, you are not allowed to use this bot.");
+      await ctx.reply(messages.notAllowed);
       return;
     }
 
@@ -532,10 +622,22 @@ export function createBot(): Telegraf {
       return;
     }
 
-    await ctx.reply("Okay - updating the parsed rows...");
-    const edited = await visionProvider.applyEditInstruction(session.pendingRows, text);
-    const next = patchSession(userId, { pendingRows: edited, mode: undefined, pendingFieldEdit: undefined });
-    await showPreviewOrAskCategory(ctx, userId, next, edited);
+    await ctx.reply(messages.processingEdit);
+    const stopTyping = startTyping(ctx.telegram, ctx.message.chat.id);
+    try {
+      const recognized = recognizesEditInstruction(text);
+      const edited = await visionProvider.applyEditInstruction(session.pendingRows, text);
+      const next = patchSession(userId, { pendingRows: edited, mode: undefined, pendingFieldEdit: undefined });
+      await showPreviewOrAskCategory(ctx, userId, next, edited);
+      if (!recognized && JSON.stringify(edited) === JSON.stringify(session.pendingRows)) {
+        await ctx.reply(`I could not understand that edit. ${messages.help}`);
+      }
+    } catch (error) {
+      console.error("Edit instruction failed", error);
+      await ctx.reply("I could not apply that edit just now 😕. Please try again or use the buttons.");
+    } finally {
+      stopTyping();
+    }
   });
 
   bot.action(/category_pick:(\d+):([a-z0-9]+)/, async (ctx) => {
@@ -544,9 +646,10 @@ export function createBot(): Telegraf {
       return;
     }
     const session = getSession(userId);
-    if (!session || session.mode !== "category_clarify") {
+    const isCategoryPick = session?.mode === "category_clarify" || session?.pendingFieldEdit?.field === "category";
+    if (!session || !isCategoryPick) {
       await ctx.answerCbQuery();
-      await ctx.reply("No active category clarification session. Send a new photo or /manual entry.");
+      await ctx.reply("No active category selection. Send a new photo or use /manual.");
       return;
     }
 
@@ -564,7 +667,9 @@ export function createBot(): Telegraf {
     const pos = session.currentAmbiguousPos ?? 0;
     const current = ambiguous[pos];
     await ctx.answerCbQuery();
-    await applyCategoryChoice(ctx, userId, session, idx, choice, current?.rawCategory);
+    // For field-edit context there's no ambiguous item; pass undefined rawCategory
+    const rawCategory = session.mode === "category_clarify" ? ambiguous[pos]?.rawCategory : undefined;
+    await applyCategoryChoice(ctx, userId, session, idx, choice, rawCategory);
   });
 
   bot.action(/category_nav:(prev|next)/, async (ctx) => {
