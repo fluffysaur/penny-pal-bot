@@ -1,5 +1,4 @@
 import type { ExpenseRow } from "../../types";
-import { config } from "../../config";
 import type { VisionProvider } from "./provider";
 
 async function withProviderTimeout<T>(promise: Promise<T>, timeoutMs: number, providerName: string): Promise<T> {
@@ -23,7 +22,7 @@ export class CompositeVisionProvider implements VisionProvider {
 
   public async parseImage(imagePath: string): Promise<ExpenseRow[]> {
     let lastError: Error | undefined;
-    const timeoutMs = config.processTimeoutSeconds * 1000;
+    const timeoutMs = Number(process.env.EXPENSE_BOT_PROCESS_TIMEOUT ?? "120") * 1000;
     for (const provider of this.providers) {
       try {
         const rows = await withProviderTimeout(provider.parseImage(imagePath), timeoutMs, provider.constructor.name);

@@ -170,7 +170,9 @@ async function applyCategoryChoice(
 }
 
 export function createBot(): Telegraf {
-  const bot = new Telegraf(config.telegramToken);
+  const bot = new Telegraf(config.telegramToken, {
+    handlerTimeout: config.handlerTimeoutSeconds * 1000
+  });
 
   bot.start(async (ctx) => {
     const userId = ctx.from?.id;
@@ -707,6 +709,14 @@ export function createBot(): Telegraf {
         nextPos < ambiguous.length - 1
       )
     );
+  });
+
+  bot.catch((error, ctx) => {
+    console.error("Unhandled bot error", {
+      error,
+      update_id: ctx.update?.update_id,
+      updateType: ctx.updateType
+    });
   });
 
   return bot;
