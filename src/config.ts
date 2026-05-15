@@ -36,7 +36,8 @@ const EnvSchema = z.object({
   EXPENSE_BOT_USER_NAMES_JSON: z.string().default("{}"),
   EXPENSE_BOT_DB_LABELS_JSON: z.string().default("{}"),
   EXPENSE_BOT_PROCESS_TIMEOUT: z.coerce.number().int().positive().default(120),
-  EXPENSE_BOT_HERMES_TIMEOUT: z.coerce.number().int().positive().default(120)
+  EXPENSE_BOT_HERMES_TIMEOUT: z.coerce.number().int().positive().default(120),
+  EXPENSE_BOT_HANDLER_TIMEOUT: z.coerce.number().int().positive().default(180)
 });
 
 const env = EnvSchema.parse(process.env);
@@ -73,5 +74,6 @@ export const config = {
   userDbMap,
   userNames,
   processTimeoutSeconds: env.EXPENSE_BOT_PROCESS_TIMEOUT,
-  visionTimeoutSeconds: env.EXPENSE_BOT_HERMES_TIMEOUT
+  visionTimeoutSeconds: env.EXPENSE_BOT_HERMES_TIMEOUT,
+  handlerTimeoutSeconds: env.EXPENSE_BOT_HANDLER_TIMEOUT
 };

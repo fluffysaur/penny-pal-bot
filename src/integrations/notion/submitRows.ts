@@ -59,35 +59,72 @@ function normalizeDate(value: unknown): string | null {
     return null;
   }
 
-  const isoMatch = raw.match(/^(\d{4}-\d{2}-\d{2})(?:[T ].*)?$/);
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const currentMonth = now.getMonth() + 1;
+  const currentDay = now.getDate();
+
+  const toIso = (year: number, month: number, day: number): string | null => {
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) {
+      return null;
+    }
+    if (month < 1 || month > 12 || day < 1 || day > 31) {
+      return null;
+    }
+    const dt = new Date(year, month - 1, day);
+    if (
+      Number.isNaN(dt.getTime()) ||
+      dt.getFullYear() !== year ||
+      dt.getMonth() + 1 !== month ||
+      dt.getDate() !== day
+    ) {
+      return null;
+    }
+    return `${year.toString().padStart(4, "0")}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
+  };
+
+  const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
   if (isoMatch) {
-    return isoMatch[1];
+    return toIso(Number(isoMatch[1]), Number(isoMatch[2]), Number(isoMatch[3]));
   }
 
-  const formats = [
-    /^(\d{2})\/(\d{2})\/(\d{4})$/,
-    /^(\d{2})-(\d{2})-(\d{4})$/
-  ];
+  const dmy = raw.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})$/);
+  if (dmy) {
+    return toIso(Number(dmy[3]), Number(dmy[2]), Number(dmy[1]));
+  }
 
-  for (const pattern of formats) {
-    const match = raw.match(pattern);
-    if (match) {
-      const day = Number(match[1]);
-      const month = Number(match[2]);
-      const year = Number(match[3]);
-      const dt = new Date(Date.UTC(year, month - 1, day));
-      if (Number.isNaN(dt.getTime())) {
-        return null;
-      }
-      return dt.toISOString().slice(0, 10);
-    }
+  const dmyNoYear = raw.match(/^(\d{1,2})[\/-](\d{1,2})$/);
+  if (dmyNoYear) {
+    return toIso(currentYear, Number(dmyNoYear[2]), Number(dmyNoYear[1]));
+  }
+
+  const ym = raw.match(/^(\d{4})-(\d{1,2})$/);
+  if (ym) {
+    return toIso(Number(ym[1]), Number(ym[2]), currentDay);
+  }
+
+  const my = raw.match(/^(\d{1,2})[\/-](\d{4})$/);
+  if (my) {
+    return toIso(Number(my[2]), Number(my[1]), currentDay);
+  }
+
+  const dayOnly = raw.match(/^(\d{1,2})$/);
+  if (dayOnly) {
+    return toIso(currentYear, currentMonth, Number(dayOnly[1]));
   }
 
   const parsed = new Date(raw);
   if (Number.isNaN(parsed.getTime())) {
     return null;
   }
-  return parsed.toISOString().slice(0, 10);
+
+  // JS Date parser can default missing years to 2001 (e.g. "3/4").
+  // If no explicit 4-digit year was provided, use current year.
+  const hasExplicitYear = /\b\d{4}\b/.test(raw);
+  const year = hasExplicitYear ? parsed.getFullYear() : currentYear;
+  const month = parsed.getMonth() + 1;
+  const day = parsed.getDate();
+  return toIso(year, month, day);
 }
 
 function getPropertyNames(schema: Record<string, unknown>): PropertyNames {
