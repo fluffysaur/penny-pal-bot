@@ -17,6 +17,15 @@ function parseIndexList(input: string): number[] {
     .filter((value) => !isNaN(value) && value > 0);
 }
 
+function applyTypeWithSign(row: ExpenseRow, type: "income" | "expense"): ExpenseRow {
+  const parsed = parseAmount(row.amount);
+  if (parsed === null) {
+    return { ...row, type };
+  }
+  const abs = Math.abs(parsed);
+  return { ...row, type, amount: type === "income" ? abs : -abs };
+}
+
 function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: string | undefined, value: string): ExpenseRow[] | null {
   const normalizedValue = value.trim();
   if (!normalizedValue) {
@@ -37,7 +46,7 @@ function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: stri
       }
       case "type": {
         const type = normalizedValue.toLowerCase() as "income" | "expense";
-        return type === "income" || type === "expense" ? { ...row, type } : row;
+        return type === "income" || type === "expense" ? applyTypeWithSign(row, type) : row;
       }
       case "date":
         return { ...row, date: normalizedValue };
@@ -102,7 +111,7 @@ export class HeuristicVisionProvider implements VisionProvider {
 
     const typeMatch = text.match(/item\s+(\d+).*type\s+to\s*:?\s*(income|expense)\s*$/i);
     if (typeMatch) {
-      return updateByIndex(rows, Number(typeMatch[1]), (row) => ({ ...row, type: typeMatch[2].toLowerCase() as "income" | "expense" }));
+      return updateByIndex(rows, Number(typeMatch[1]), (row) => applyTypeWithSign(row, typeMatch[2].toLowerCase() as "income" | "expense"));
     }
 
     const categoryMatch = text.match(/item\s+(\d+).*category\s+to\s*:?\s*(.+)$/i);

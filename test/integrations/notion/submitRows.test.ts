@@ -69,7 +69,7 @@ describe("submitRowsToNotion", () => {
 
     const props = created[0].properties as Record<string, any>;
     expect(props.Item.title[0].text.content).toBe("Claude");
-    expect(props.Amount.number).toBe(-29.98);
+    expect(props.Amount.number).toBe(29.98);
     expect(props.Date.date.start).toBe("2026-05-12");
     expect(props.Category.relation[0].id).toBe("rel-life");
     expect(props.Remarks.rich_text[0].text.content).toContain("monthly");

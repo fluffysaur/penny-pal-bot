@@ -8,7 +8,7 @@ export function escapeHtml(text: string): string {
 export function renderPreviewText(targetLabel: string, rows: ExpenseRow[]): string {
   const lines: string[] = [`📋 <b>${escapeHtml(targetLabel)}</b>`, ""];
   rows.forEach((row, index) => {
-    const isIncome = typeof row.amount === "number" && row.amount < 0;
+    const isIncome = typeof row.amount === "number" && row.amount > 0;
     const icon = isIncome ? "💸" : "🛍";
     const amt =
       typeof row.amount === "number" ? row.amount.toFixed(2) : String(row.amount ?? "");

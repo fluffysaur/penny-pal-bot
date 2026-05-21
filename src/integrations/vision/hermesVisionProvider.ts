@@ -139,7 +139,7 @@ export class HermesVisionProvider implements VisionProvider {
     const primaryPrompt = [
       "Extract expense rows from the attached image and return ONLY a JSON array.",
       "Each row should include item, amount, date, category, confidence.",
-      "Use negative amounts for refunds/reimbursements/paybacks.",
+      "Use negative amounts for expenses and positive amounts for income/refunds/reimbursements/paybacks.",
       "If there are no transactions, return []."
     ].join("\n");
 
@@ -154,7 +154,7 @@ export class HermesVisionProvider implements VisionProvider {
       "Return ONLY a JSON array of best-effort transaction rows, even if confidence is low.",
       "Do not return prose or markdown.",
       "Each row must include item and amount; include date/category/confidence when available.",
-      "Use negative amounts for refunds/reimbursements/paybacks.",
+      "Use negative amounts for expenses and positive amounts for income/refunds/reimbursements/paybacks.",
       "If absolutely no transaction-like text exists, return []."
     ].join("\n");
 
@@ -167,7 +167,7 @@ export class HermesVisionProvider implements VisionProvider {
       "You are editing parsed expense rows.",
       "Return ONLY a JSON array.",
       "Preserve keys: item, amount, date, category, confidence, remarks, type.",
-      "Keep expenses positive and income/refund rows negative.",
+      "Keep expenses negative and income/refund rows positive.",
       `Instruction: ${instruction}`,
       `Current rows JSON: ${JSON.stringify(rows)}`
     ].join("\n\n");
