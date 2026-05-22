@@ -15,9 +15,8 @@ export function renderPreviewText(targetLabel: string, rows: ExpenseRow[]): stri
     const category = escapeHtml(row.category ?? "(guess)");
     const date = row.date ? escapeHtml(String(row.date)) : "";
     const meta = [category, date].filter(Boolean).join("  ·  ");
-    const incomeTag = isIncome ? "  ·  <i>income/refund</i>" : "";
     lines.push(`${index + 1}. ${icon} <b>${escapeHtml(row.item)}</b>`);
-    lines.push(`   ${amt}  ·  ${meta}${incomeTag}`);
+    lines.push(`   ${amt}  ·  ${meta}`);
     if (row.remarks) {
       lines.push(`   📝 <i>${escapeHtml(String(row.remarks))}</i>`);
     }
@@ -71,10 +70,6 @@ export function itemFieldKeyboard(itemIndex: number) {
       Markup.button.callback("Date", `edit_field:${itemIndex}:date`)
     ],
     [Markup.button.callback("Remarks", `edit_field:${itemIndex}:remarks`)],
-    [
-      Markup.button.callback("Mark as income/refund", `edit_type:${itemIndex}:income`),
-      Markup.button.callback("Mark as expense", `edit_type:${itemIndex}:expense`)
-    ],
     [Markup.button.callback("Delete item", `delete_item:${itemIndex}`)],
     [Markup.button.callback("Back", "edit_menu")],
     [Markup.button.callback("Cancel", "cancel")]

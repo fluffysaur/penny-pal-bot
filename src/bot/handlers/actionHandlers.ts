@@ -1,6 +1,5 @@
 import type { Telegraf } from "telegraf";
 import { buildCategoryClarificationText, normalizeKey, rememberCategoryMapping } from "../../domain/categoryHelpers";
-import { parseAmount } from "../../domain/expenseSigns";
 import type { NotionClient } from "../../integrations/notion/notionClient";
 import { fetchRelationOptionTitles, submitRowsToNotion } from "../../integrations/notion/submitRows";
 import { hasUnresolvedCategories, removeEntryAt, applyFieldEdit } from "../flowHelpers";
@@ -161,40 +160,6 @@ export function registerActionHandlers(bot: Telegraf, deps: ActionHandlerDeps): 
       `Send the new ${field} for item ${idx + 1}.\nCurrent: <b>${formatFieldValue(currentValue)}</b>`,
       { parse_mode: "HTML" as const }
     );
-  });
-
-  bot.action(/edit_type:(\d+):(income|expense)/, async (ctx) => {
-    const userId = ctx.from?.id;
-    if (!userId) {
-      return;
-    }
-    const session = getSession(userId);
-    if (!session) {
-      await ctx.answerCbQuery();
-      return;
-    }
-    const idx = Number(ctx.match[1]);
-    const transactionType = String(ctx.match[2]) as "income" | "expense";
-    if (idx < 0 || idx >= session.pendingRows.length) {
-      await ctx.answerCbQuery();
-      await ctx.editMessageText("That item no longer exists. Please reopen the edit menu.");
-      return;
-    }
-    const updated = session.pendingRows.map((row, i) => {
-      if (i !== idx) {
-        return row;
-      }
-      const parsed = parseAmount(row.amount);
-      if (parsed === null) {
-        return { ...row, type: transactionType };
-      }
-      const abs = Math.abs(parsed);
-      const signedAmount = transactionType === "income" ? abs : -abs;
-      return { ...row, type: transactionType, amount: signedAmount };
-    });
-    const next = patchSession(userId, { pendingRows: updated, pendingFieldEdit: undefined });
-    await ctx.answerCbQuery();
-    await showItemEditor(ctx, next.targetLabel, idx, next.pendingRows[idx], true);
   });
 
   bot.action(/delete_item:(\d+)/, async (ctx) => {

@@ -6,7 +6,7 @@ import {
   normalizeRowsCategories,
   rememberCategoryMapping
 } from "../domain/categoryHelpers";
-import { normalizeRows, parseAmount } from "../domain/expenseSigns";
+import { parseAmount } from "../domain/expenseSigns";
 import type { ExpenseRow } from "../types";
 import type { NotionClient } from "../integrations/notion/notionClient";
 import { fetchRelationOptionTitles } from "../integrations/notion/submitRows";
@@ -43,7 +43,6 @@ export function formatFieldValue(value: unknown, fallback = "(empty)"): string {
 export function renderItemEditText(targetLabel: string, itemIndex: number, row: ExpenseRow): string {
   const parsedAmount = parseAmount(row.amount);
   const amount = parsedAmount === null ? formatFieldValue(row.amount) : parsedAmount.toFixed(2);
-  const inferredType = parsedAmount !== null ? (parsedAmount > 0 ? "income" : "expense") : (row.type ?? "expense");
   return [
     `Editing <b>${escapeHtml(targetLabel)}</b> item ${itemIndex + 1}`,
     "",
@@ -52,7 +51,6 @@ export function renderItemEditText(targetLabel: string, itemIndex: number, row: 
     `<b>Category</b>: ${formatFieldValue(row.category, "(guess)")}`,
     `<b>Date</b>: ${formatFieldValue(row.date)}`,
     `<b>Remarks</b>: ${formatFieldValue(row.remarks)}`,
-    `<b>Type</b>: ${escapeHtml(inferredType)}`,
     "",
     "Choose what to edit:"
   ].join("\n");
@@ -79,7 +77,7 @@ export async function showPreview(
   rows: ExpenseRow[],
   preferEdit = false
 ): Promise<void> {
-  await sendOrEditMessage(ctx, renderPreviewText(targetLabel, normalizeRows(rows)), previewExtra(), preferEdit);
+  await sendOrEditMessage(ctx, renderPreviewText(targetLabel, rows), previewExtra(), preferEdit);
 }
 
 export function categoryChoiceKeyboard(
@@ -123,8 +121,7 @@ export async function showPreviewOrAskCategory(
   preferEdit = false
 ): Promise<void> {
   const relationOptions = await fetchRelationOptionTitles(notionClient, session.targetDb);
-  const signed = normalizeRows(rows);
-  const normalized = relationOptions.length > 0 ? normalizeRowsCategories(signed, relationOptions) : signed;
+  const normalized = relationOptions.length > 0 ? normalizeRowsCategories(rows, relationOptions) : rows;
   const ambiguous = relationOptions.length > 0 ? findAmbiguousCategories(normalized, relationOptions) : [];
 
   if (ambiguous.length > 0) {

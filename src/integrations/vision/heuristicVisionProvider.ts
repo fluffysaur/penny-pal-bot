@@ -17,22 +17,13 @@ function parseIndexList(input: string): number[] {
     .filter((value) => !isNaN(value) && value > 0);
 }
 
-function applyTypeWithSign(row: ExpenseRow, type: "income" | "expense"): ExpenseRow {
-  const parsed = parseAmount(row.amount);
-  if (parsed === null) {
-    return { ...row, type };
-  }
-  const abs = Math.abs(parsed);
-  return { ...row, type, amount: type === "income" ? abs : -abs };
-}
-
 function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: string | undefined, value: string): ExpenseRow[] | null {
   const normalizedValue = value.trim();
   if (!normalizedValue) {
     return null;
   }
 
-  const resolvedField = field ?? ( /^(income|expense)$/i.test(normalizedValue) ? "type" : parseAmount(normalizedValue) !== null ? "amount" : "category");
+  const resolvedField = field ?? (parseAmount(normalizedValue) !== null ? "amount" : "category");
 
   const updated = rows.map((row, i) => {
     if (!indices.includes(i + 1)) {
@@ -43,10 +34,6 @@ function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: stri
       case "amount": {
         const parsed = parseAmount(normalizedValue);
         return parsed === null ? row : { ...row, amount: parsed };
-      }
-      case "type": {
-        const type = normalizedValue.toLowerCase() as "income" | "expense";
-        return type === "income" || type === "expense" ? applyTypeWithSign(row, type) : row;
       }
       case "date":
         return { ...row, date: normalizedValue };
@@ -71,10 +58,10 @@ function isKnownEditInstruction(text: string): boolean {
   if (/item\s+\d+.*amount\s+to\s*:?\s*([\-$0-9.,]+)/i.test(text)) {
     return true;
   }
-  if (/item\s+\d+.*(type|category|date|remarks|name|item)\s+to\s*:?\s*(.+)$/i.test(text)) {
+  if (/item\s+\d+.*(category|date|remarks|name|item)\s+to\s*:?\s*(.+)$/i.test(text)) {
     return true;
   }
-  if (/(?:(?:update|set|change|move)\s+)?items?\s+[\d,\s]+?\s+(?:(?:amount|type|category|date|remarks|name|item)\s+)?to\s+.+$/i.test(text)) {
+  if (/(?:(?:update|set|change|move)\s+)?items?\s+[\d,\s]+?\s+(?:(?:amount|category|date|remarks|name|item)\s+)?to\s+.+$/i.test(text)) {
     return true;
   }
   return false;
@@ -109,11 +96,6 @@ export class HeuristicVisionProvider implements VisionProvider {
       }
     }
 
-    const typeMatch = text.match(/item\s+(\d+).*type\s+to\s*:?\s*(income|expense)\s*$/i);
-    if (typeMatch) {
-      return updateByIndex(rows, Number(typeMatch[1]), (row) => applyTypeWithSign(row, typeMatch[2].toLowerCase() as "income" | "expense"));
-    }
-
     const categoryMatch = text.match(/item\s+(\d+).*category\s+to\s*:?\s*(.+)$/i);
     if (categoryMatch) {
       return updateByIndex(rows, Number(categoryMatch[1]), (row) => ({ ...row, category: categoryMatch[2].trim() }));
@@ -130,7 +112,7 @@ export class HeuristicVisionProvider implements VisionProvider {
     }
 
     const bulkMatch = text.match(
-      /(?:(?:update|set|change|move)\s+)?items?\s+([\d,\s]+?)\s+(?:(amount|type|category|date|remarks|name|item)\s+)?to\s+(.+?)(?:\s+(amount|type|category|date|remarks|name|item))?\s*$/i
+      /(?:(?:update|set|change|move)\s+)?items?\s+([\d,\s]+?)\s+(?:(amount|category|date|remarks|name|item)\s+)?to\s+(.+?)(?:\s+(amount|category|date|remarks|name|item))?\s*$/i
     );
     if (bulkMatch) {
       const indices = parseIndexList(bulkMatch[1]);

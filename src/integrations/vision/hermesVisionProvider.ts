@@ -22,8 +22,7 @@ function coerceRows(rawRows: Record<string, unknown>[]): ExpenseRow[] {
       category: raw.category ? String(raw.category) : undefined,
       date: raw.date ? String(raw.date) : undefined,
       confidence: typeof raw.confidence === "number" ? raw.confidence : undefined,
-      remarks: raw.remarks ? String(raw.remarks) : undefined,
-      type: raw.type === "income" || raw.type === "expense" ? raw.type : undefined
+      remarks: raw.remarks ? String(raw.remarks) : undefined
     });
   }
   return rows;
@@ -139,7 +138,7 @@ export class HermesVisionProvider implements VisionProvider {
     const primaryPrompt = [
       "Extract expense rows from the attached image and return ONLY a JSON array.",
       "Each row should include item, amount, date, category, confidence.",
-      "Use negative amounts for expenses and positive amounts for income/refunds/reimbursements/paybacks.",
+      "Keep amount signs exactly as shown in the screenshot. Do not infer income/expense type.",
       "If there are no transactions, return []."
     ].join("\n");
 
@@ -154,7 +153,7 @@ export class HermesVisionProvider implements VisionProvider {
       "Return ONLY a JSON array of best-effort transaction rows, even if confidence is low.",
       "Do not return prose or markdown.",
       "Each row must include item and amount; include date/category/confidence when available.",
-      "Use negative amounts for expenses and positive amounts for income/refunds/reimbursements/paybacks.",
+      "Keep amount signs exactly as shown in the screenshot. Do not infer income/expense type.",
       "If absolutely no transaction-like text exists, return []."
     ].join("\n");
 
@@ -166,8 +165,8 @@ export class HermesVisionProvider implements VisionProvider {
     const prompt = [
       "You are editing parsed expense rows.",
       "Return ONLY a JSON array.",
-      "Preserve keys: item, amount, date, category, confidence, remarks, type.",
-      "Keep expenses negative and income/refund rows positive.",
+      "Preserve keys: item, amount, date, category, confidence, remarks.",
+      "Do not infer or set income/expense type. Keep amount sign semantics literal.",
       `Instruction: ${instruction}`,
       `Current rows JSON: ${JSON.stringify(rows)}`
     ].join("\n\n");

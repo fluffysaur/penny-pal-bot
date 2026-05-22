@@ -71,22 +71,21 @@ describe("HeuristicVisionProvider", () => {
     expect(edited[2].amount).toBe(7.25);
   });
 
-  it("bulk-updates type for multiple items when value is income or expense", async () => {
+  it("treats bare text value as category in bulk updates", async () => {
     const rows = [
       { item: "Coffee", amount: -4.5, category: "Food" },
       { item: "Bus", amount: -1.2, category: "Transport" }
     ];
     const edited = await provider.applyEditInstruction(rows, "update items 1, 2 to income");
-    expect(edited[0].type).toBe("income");
-    expect(edited[1].type).toBe("income");
-    expect(edited[0].amount).toBe(4.5);
-    expect(edited[1].amount).toBe(1.2);
+    expect(edited[0].category).toBe("income");
+    expect(edited[1].category).toBe("income");
+    expect(edited[0].amount).toBe(-4.5);
+    expect(edited[1].amount).toBe(-1.2);
   });
 
-  it("updates amount sign when setting single item type", async () => {
+  it("returns [] for unsupported single-item type edit", async () => {
     const rows = [{ item: "Coffee", amount: 4.5, category: "Food" }];
     const edited = await provider.applyEditInstruction(rows, "for item 1, set type to: expense");
-    expect(edited[0].type).toBe("expense");
-    expect(edited[0].amount).toBe(-4.5);
+    expect(edited).toEqual([]);
   });
 });

@@ -23,26 +23,16 @@ export function parseAmount(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function rowLooksLikeIncome(row: ExpenseRow): boolean {
-  const parsedAmount = parseAmount(row.amount);
-  if (parsedAmount !== null) {
-    return parsedAmount > 0;
-  }
-
-  return String(row.type ?? "").toLowerCase().trim() === "income";
-}
-
 export function normalizeRowAmount(row: ExpenseRow): ExpenseRow {
   const amount = parseAmount(row.amount);
   if (amount === null) {
     return { ...row };
   }
 
-  const isIncome = rowLooksLikeIncome(row);
-  const abs = Math.abs(amount);
+  const inverted = amount === 0 ? 0 : -amount;
   return {
     ...row,
-    amount: isIncome ? abs : -abs
+    amount: inverted
   };
 }
 

@@ -16,14 +16,14 @@ describe("formatting", () => {
     expect(inline[3][0].callback_data).toBe("cancel");
   });
 
-  it("tags positive amounts as income/refund in preview", () => {
+  it("renders preview rows without income/refund label", () => {
     const text = renderPreviewText("Yi Jia", [
       { item: "Salary", amount: 2500, category: "Income", date: "2026-05-19" },
       { item: "Coffee", amount: -4.5, category: "Food", date: "2026-05-19" }
     ]);
 
     expect(text).toContain("Salary");
-    expect(text).toContain("income/refund");
-    expect(text).not.toContain("Coffee</b>\n   -4.50  ·  Food  ·  2026-05-19  ·  <i>income/refund</i>");
+    expect(text).toContain("2500.00  ·  Income  ·  2026-05-19");
+    expect(text).not.toContain("income/refund");
   });
 });

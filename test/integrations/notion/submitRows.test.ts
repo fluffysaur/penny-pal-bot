@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { fetchRelationOptionTitles, submitRowsToNotion } from "../../../src/integrations/notion/submitRows";
 
+function todayIsoLocal(): string {
+  const now = new Date();
+  const year = now.getFullYear().toString().padStart(4, "0");
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function makeSchema() {
   return {
     properties: {
@@ -57,8 +65,7 @@ describe("submitRowsToNotion", () => {
           amount: "29.98",
           category: "Software/Subscription",
           date: "2026-05-12",
-          remarks: "monthly",
-          type: "income"
+          remarks: "monthly"
         }
       ]
     );
@@ -69,11 +76,33 @@ describe("submitRowsToNotion", () => {
 
     const props = created[0].properties as Record<string, any>;
     expect(props.Item.title[0].text.content).toBe("Claude");
-    expect(props.Amount.number).toBe(29.98);
+    expect(props.Amount.number).toBe(-29.98);
     expect(props.Date.date.start).toBe("2026-05-12");
     expect(props.Category.relation[0].id).toBe("rel-life");
     expect(props.Remarks.rich_text[0].text.content).toContain("monthly");
-    expect(props.Remarks.rich_text[0].text.content).toContain("income/refund offset");
+  });
+
+  it("defaults missing date to current day", async () => {
+    const created: Array<{ databaseId: string; properties: Record<string, unknown> }> = [];
+    const client = {
+      getDatabase: async () => makeSchema(),
+      queryDatabase: async (dbId: string) => (dbId === "rel-db" ? makeRelationPages() : []),
+      createPage: async (input: { databaseId: string; properties: Record<string, unknown> }) => {
+        created.push(input);
+        return { id: "page-1" };
+      }
+    };
+
+    await submitRowsToNotion(client as any, "expenses-db", [
+      {
+        item: "Coffee",
+        amount: "4.50",
+        category: "Food"
+      }
+    ]);
+
+    const props = created[0].properties as Record<string, any>;
+    expect(props.Date.date.start).toBe(todayIsoLocal());
   });
 
   it("throws on invalid date after normalization", async () => {

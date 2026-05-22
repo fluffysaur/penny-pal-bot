@@ -37,7 +37,8 @@ describe("interactionHelpers", () => {
     expect(text).toContain("Editing <b>Yi Jia</b> item 2");
     expect(text).toContain("<b>Item</b>: Salary");
     expect(text).toContain("<b>Amount</b>: 2500.00");
-    expect(text).toContain("<b>Type</b>: income");
+    expect(text).toContain("<b>Date</b>: 2026-05-19");
+    expect(text).not.toContain("<b>Type</b>");
   });
 
   it("picks category using normalized matching", () => {

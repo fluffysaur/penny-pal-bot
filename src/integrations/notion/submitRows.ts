@@ -51,14 +51,6 @@ function extractTitleFromPage(page: NotionPage): string {
 }
 
 function normalizeDate(value: unknown): string | null {
-  if (!value) {
-    return null;
-  }
-  const raw = String(value).trim();
-  if (!raw) {
-    return null;
-  }
-
   const now = new Date();
   const currentYear = now.getFullYear();
   const currentMonth = now.getMonth() + 1;
@@ -82,6 +74,20 @@ function normalizeDate(value: unknown): string | null {
     }
     return `${year.toString().padStart(4, "0")}-${month.toString().padStart(2, "0")}-${day.toString().padStart(2, "0")}`;
   };
+
+  const today = toIso(currentYear, currentMonth, currentDay);
+  if (!today) {
+    return null;
+  }
+
+  if (value === undefined || value === null) {
+    return today;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) {
+    return today;
+  }
 
   const isoMatch = raw.match(/^(\d{4})-(\d{2})-(\d{2})(?:[T ].*)?$/);
   if (isoMatch) {
@@ -255,9 +261,6 @@ export async function submitRowsToNotion(client: NotionClient, targetDbId: strin
     const remarks: string[] = [];
     if (row.remarks) {
       remarks.push(String(row.remarks));
-    }
-    if (row.type === "income") {
-      remarks.push("Transaction marked as income/refund offset");
     }
     if (remarks.length > 0 && names.remarks) {
       properties[names.remarks] = { rich_text: [{ text: { content: remarks.join("; ").slice(0, 1900) } }] };
