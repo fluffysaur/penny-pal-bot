@@ -1,6 +1,6 @@
 import type { ExpenseRow } from "../../types";
 import { parseAmount } from "../../domain/expenseSigns";
-import type { VisionProvider } from "./provider";
+import { parseImagesSequentially, type VisionProvider } from "./provider";
 
 function updateByIndex(rows: ExpenseRow[], oneBasedIndex: number, updater: (row: ExpenseRow) => ExpenseRow): ExpenseRow[] {
   const idx = oneBasedIndex - 1;
@@ -74,6 +74,10 @@ export function recognizesEditInstruction(instruction: string): boolean {
 export class HeuristicVisionProvider implements VisionProvider {
   public async parseImage(_imagePath: string): Promise<ExpenseRow[]> {
     return [];
+  }
+
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
+    return parseImagesSequentially(this, imagePaths);
   }
 
   public async applyEditInstruction(rows: ExpenseRow[], instruction: string): Promise<ExpenseRow[]> {

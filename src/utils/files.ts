@@ -22,3 +22,9 @@ export function cleanupTempFile(filePath: string): void {
     // Best-effort cleanup only.
   }
 }
+
+export function cleanupTempFiles(filePaths: string[]): void {
+  for (const filePath of filePaths) {
+    cleanupTempFile(filePath);
+  }
+}

@@ -133,6 +133,26 @@ async function runHermes(prompt: string, imagePath?: string): Promise<string> {
   return "";
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 export class HermesVisionProvider implements VisionProvider {
   public async parseImage(imagePath: string): Promise<ExpenseRow[]> {
     const primaryPrompt = [
@@ -159,6 +179,33 @@ export class HermesVisionProvider implements VisionProvider {
 
     const retryStdout = await runHermes(retryPrompt, imagePath);
     return coerceRows(extractJsonArray(retryStdout));
+  }
+
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
+    if (imagePaths.length <= 1) {
+      return imagePaths.length === 0 ? [] : this.parseImage(imagePaths[0]);
+    }
+
+    const results = await mapWithConcurrency(imagePaths, 2, async (imagePath) => {
+      try {
+        return { rows: await this.parseImage(imagePath) };
+      } catch (error) {
+        console.error("Hermes image parsing failed", error);
+        return { rows: [] as ExpenseRow[], error: error as Error };
+      }
+    });
+
+    const rows = results.flatMap((result) => result.rows);
+    if (rows.length > 0) {
+      return rows;
+    }
+
+    for (let i = results.length - 1; i >= 0; i -= 1) {
+      if (results[i].error) {
+        throw results[i].error;
+      }
+    }
+    return [];
   }
 
   public async applyEditInstruction(rows: ExpenseRow[], instruction: string): Promise<ExpenseRow[]> {

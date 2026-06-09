@@ -1,6 +1,6 @@
 import { config } from "../config";
 
-export const PHOTO_PARSE_TIMEOUT_MS = 120 * 1000;
+export const photoParseTimeoutMs = (): number => config.processTimeoutSeconds * 1000;
 
 export class TimeoutError extends Error {
   constructor(message: string) {

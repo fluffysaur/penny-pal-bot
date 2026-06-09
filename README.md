@@ -32,7 +32,8 @@ cp .env.template .env
 - `EXPENSE_BOT_USER_NAMES_JSON`: JSON object mapping user ID to display name
 - `EXPENSE_BOT_DB_LABELS_JSON`: JSON object mapping Notion DB ID to display label
 - `EXPENSE_BOT_PROCESS_TIMEOUT`: Process timeout in seconds (default: `300`)
-- `EXPENSE_BOT_HERMES_TIMEOUT`: Vision timeout in seconds (default: `240`)
+- `EXPENSE_BOT_HERMES_TIMEOUT`: Vision timeout in seconds (default: `300`)
+- `EXPENSE_BOT_HANDLER_TIMEOUT`: Telegram handler timeout in seconds (default: `300`)
 
 Example:
 
@@ -45,7 +46,8 @@ EXPENSE_BOT_USER_DB_MAP_JSON={"12345678":"abc123def456"}
 EXPENSE_BOT_USER_NAMES_JSON={"12345678":"Alice"}
 EXPENSE_BOT_DB_LABELS_JSON={"abc123def456":"Personal"}
 EXPENSE_BOT_PROCESS_TIMEOUT=300
-EXPENSE_BOT_HERMES_TIMEOUT=240
+EXPENSE_BOT_HERMES_TIMEOUT=300
+EXPENSE_BOT_HANDLER_TIMEOUT=300
 ```
 
 ## Run Locally

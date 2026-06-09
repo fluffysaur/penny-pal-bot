@@ -1,3 +1,4 @@
+import { config } from "../../config";
 import type { ExpenseRow } from "../../types";
 import type { VisionProvider } from "./provider";
 
@@ -21,11 +22,15 @@ export class CompositeVisionProvider implements VisionProvider {
   constructor(private readonly providers: VisionProvider[]) {}
 
   public async parseImage(imagePath: string): Promise<ExpenseRow[]> {
+    return this.parseImages([imagePath]);
+  }
+
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
     let lastError: Error | undefined;
-    const timeoutMs = Number(process.env.EXPENSE_BOT_PROCESS_TIMEOUT ?? "120") * 1000;
+    const timeoutMs = config.processTimeoutSeconds * 1000;
     for (const provider of this.providers) {
       try {
-        const rows = await withProviderTimeout(provider.parseImage(imagePath), timeoutMs, provider.constructor.name);
+        const rows = await withProviderTimeout(provider.parseImages(imagePaths), timeoutMs, provider.constructor.name);
         if (rows.length > 0) {
           return rows;
         }

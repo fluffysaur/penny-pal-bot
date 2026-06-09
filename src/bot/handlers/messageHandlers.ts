@@ -4,7 +4,7 @@ import { parseManualEntries } from "../../domain/manualParser";
 import type { NotionClient } from "../../integrations/notion/notionClient";
 import type { VisionProvider } from "../../integrations/vision/provider";
 import { recognizesEditInstruction } from "../../integrations/vision/heuristicVisionProvider";
-import { cleanupTempFile, downloadUrlToTempFile } from "../../utils/files";
+import { cleanupTempFiles, downloadUrlToTempFile } from "../../utils/files";
 import {
   appendManualEntries,
   applyFieldEdit,
@@ -18,12 +18,13 @@ import {
   showPreviewOrAskCategory
 } from "../interactionHelpers";
 import { messages } from "../messages";
+import { MediaGroupBuffer } from "../mediaGroupBuffer";
 import { removeItemKeyboard } from "../formatting";
 import { getSession, patchSession, setSession } from "../sessionStore";
 import type { UserSession } from "../sessionStore";
 import {
-  PHOTO_PARSE_TIMEOUT_MS,
   isTimeoutError,
+  photoParseTimeoutMs,
   startTyping,
   targetInfoForUser,
   withTimeout
@@ -34,8 +35,128 @@ interface MessageHandlerDeps {
   visionProvider: VisionProvider;
 }
 
+interface TelegramClient {
+  sendMessage(chatId: number | string, text: string, extra?: Record<string, unknown>): Promise<unknown>;
+  editMessageText(
+    chatId: number | string,
+    messageId: number,
+    inlineMessageId: undefined,
+    text: string,
+    extra?: Record<string, unknown>
+  ): Promise<unknown>;
+  getFileLink(fileId: string): Promise<URL>;
+  sendChatAction(chatId: number | string, action: string): Promise<void>;
+}
+
+const MEDIA_GROUP_DEBOUNCE_MS = 900;
+
+interface PhotoBatchItem {
+  fileId: string;
+  messageId: number;
+}
+
+interface PhotoBatchPayload {
+  telegram: TelegramClient;
+  chatId: number | string;
+  dbId: string;
+  label: string;
+  photo: PhotoBatchItem;
+}
+
+interface ProcessPhotoBatchParams extends MessageHandlerDeps {
+  telegram: TelegramClient;
+  chatId: number | string;
+  userId: number;
+  dbId: string;
+  label: string;
+  photos: PhotoBatchItem[];
+}
+
+async function processPhotoBatch(params: ProcessPhotoBatchParams): Promise<void> {
+  const { telegram, chatId, userId, dbId, label, photos, notionClient, visionProvider } = params;
+  patchSession(userId, { targetDb: dbId, targetLabel: label, mode: undefined });
+  const status = await telegram.sendMessage(chatId, messages.parseInProgress(label, photos.length));
+  const statusMessageId = (status as { message_id?: number } | undefined)?.message_id;
+  const editStatus = async (text: string, extra?: Record<string, unknown>): Promise<void> => {
+    if (!statusMessageId) {
+      await telegram.sendMessage(chatId, text, extra);
+      return;
+    }
+    await telegram.editMessageText(chatId, statusMessageId, undefined, text, extra as Record<string, unknown>);
+  };
+
+  const tempPaths: string[] = [];
+  const stopTyping = startTyping(telegram, chatId);
+  try {
+    const downloaded = await Promise.all(
+      photos.map(async (photo) => {
+        const fileLink = await telegram.getFileLink(photo.fileId);
+        return downloadUrlToTempFile(fileLink.href, "jpg");
+      })
+    );
+    tempPaths.push(...downloaded);
+
+    const rows = await withTimeout(
+      visionProvider.parseImages(tempPaths),
+      photoParseTimeoutMs(),
+      "Image parsing timed out"
+    );
+    if (rows.length === 0) {
+      await editStatus(messages.parseNoRows);
+      return;
+    }
+
+    const session = patchSession(userId, { pendingRows: rows, targetDb: dbId, targetLabel: label, mode: undefined });
+    await showPreviewOrAskCategory(
+      {
+        reply: async (text: string, extra?: Record<string, unknown>) => {
+          await editStatus(text, extra);
+          return {};
+        },
+        editMessageText: async (text: string, extra?: Record<string, unknown>) => {
+          await editStatus(text, extra);
+          return {};
+        }
+      },
+      userId,
+      session,
+      rows,
+      notionClient,
+      true
+    );
+  } catch (error) {
+    if (isTimeoutError(error)) {
+      await editStatus(messages.parseTimedOut);
+      return;
+    }
+    console.error("Photo parsing failed", error);
+    await editStatus(messages.parseError);
+  } finally {
+    stopTyping();
+    cleanupTempFiles(tempPaths);
+  }
+}
+
 export function registerMessageHandlers(bot: Telegraf, deps: MessageHandlerDeps): void {
   const { notionClient, visionProvider } = deps;
+
+  const albumBuffer = new MediaGroupBuffer<PhotoBatchPayload>(MEDIA_GROUP_DEBOUNCE_MS, async (items) => {
+    const first = items[0];
+    if (!first) {
+      return;
+    }
+
+    await processPhotoBatch({
+      telegram: first.payload.telegram,
+      chatId: first.payload.chatId,
+      userId: first.userId,
+      dbId: first.payload.dbId,
+      label: first.payload.label,
+      photos: items.map((item) => item.payload.photo),
+      notionClient,
+      visionProvider
+    });
+  });
 
   bot.on("photo", async (ctx) => {
     const userId = ctx.from?.id;
@@ -44,70 +165,35 @@ export function registerMessageHandlers(bot: Telegraf, deps: MessageHandlerDeps)
       return;
     }
     const { dbId, label } = targetInfoForUser(userId);
-    patchSession(userId, { targetDb: dbId, targetLabel: label, mode: undefined });
-    const status = await ctx.reply(messages.parseInProgress(label));
-    const statusMessageId = (status as { message_id?: number } | undefined)?.message_id;
-    const editStatus = async (text: string, extra?: Record<string, unknown>): Promise<void> => {
-      if (!statusMessageId) {
-        await ctx.reply(text, extra);
-        return;
-      }
-      await ctx.telegram.editMessageText(
-        ctx.message.chat.id,
-        statusMessageId,
-        undefined,
-        text,
-        extra as Record<string, unknown>
-      );
-    };
+    const photo = ctx.message.photo[ctx.message.photo.length - 1];
+    const batchPhoto = { fileId: photo.file_id, messageId: ctx.message.message_id };
 
-    let tempPath: string | undefined;
-    const stopTyping = startTyping(ctx.telegram, ctx.message.chat.id);
-    try {
-      const photo = ctx.message.photo[ctx.message.photo.length - 1];
-      const fileLink = await ctx.telegram.getFileLink(photo.file_id);
-      tempPath = await downloadUrlToTempFile(fileLink.href, "jpg");
-      const rows = await withTimeout(
-        visionProvider.parseImage(tempPath),
-        PHOTO_PARSE_TIMEOUT_MS,
-        "Image parsing timed out"
-      );
-      if (rows.length === 0) {
-        await editStatus(messages.parseNoRows);
-        return;
-      }
-
-      const session = patchSession(userId, { pendingRows: rows, targetDb: dbId, targetLabel: label, mode: undefined });
-      await showPreviewOrAskCategory(
-        {
-          reply: async (text: string, extra?: Record<string, unknown>) => {
-            await editStatus(text, extra);
-            return {};
-          },
-          editMessageText: async (text: string, extra?: Record<string, unknown>) => {
-            await editStatus(text, extra);
-            return {};
-          }
-        },
+    if (ctx.message.media_group_id) {
+      albumBuffer.add({
         userId,
-        session,
-        rows,
-        notionClient,
-        true
-      );
-    } catch (error) {
-      if (isTimeoutError(error)) {
-        await editStatus(messages.parseTimedOut);
-        return;
-      }
-      console.error("Photo parsing failed", error);
-      await editStatus(messages.parseError);
-    } finally {
-      stopTyping();
-      if (tempPath) {
-        cleanupTempFile(tempPath);
-      }
+        mediaGroupId: ctx.message.media_group_id,
+        messageId: ctx.message.message_id,
+        payload: {
+          telegram: ctx.telegram,
+          chatId: ctx.message.chat.id,
+          dbId,
+          label,
+          photo: batchPhoto
+        }
+      });
+      return;
     }
+
+    await processPhotoBatch({
+      telegram: ctx.telegram,
+      chatId: ctx.message.chat.id,
+      userId,
+      dbId,
+      label,
+      photos: [batchPhoto],
+      notionClient,
+      visionProvider
+    });
   });
 
   bot.on("text", async (ctx) => {
