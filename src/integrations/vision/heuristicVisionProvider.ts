@@ -1,6 +1,6 @@
 import type { ExpenseRow } from "../../types";
 import { parseAmount } from "../../domain/expenseSigns";
-import type { VisionProvider } from "./provider";
+import { parseImagesSequentially, type VisionProvider } from "./provider";
 
 function updateByIndex(rows: ExpenseRow[], oneBasedIndex: number, updater: (row: ExpenseRow) => ExpenseRow): ExpenseRow[] {
   const idx = oneBasedIndex - 1;
@@ -23,7 +23,7 @@ function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: stri
     return null;
   }
 
-  const resolvedField = field ?? ( /^(income|expense)$/i.test(normalizedValue) ? "type" : parseAmount(normalizedValue) !== null ? "amount" : "category");
+  const resolvedField = field ?? (parseAmount(normalizedValue) !== null ? "amount" : "category");
 
   const updated = rows.map((row, i) => {
     if (!indices.includes(i + 1)) {
@@ -34,10 +34,6 @@ function applyBulkFieldUpdate(rows: ExpenseRow[], indices: number[], field: stri
       case "amount": {
         const parsed = parseAmount(normalizedValue);
         return parsed === null ? row : { ...row, amount: parsed };
-      }
-      case "type": {
-        const type = normalizedValue.toLowerCase() as "income" | "expense";
-        return type === "income" || type === "expense" ? { ...row, type } : row;
       }
       case "date":
         return { ...row, date: normalizedValue };
@@ -62,10 +58,10 @@ function isKnownEditInstruction(text: string): boolean {
   if (/item\s+\d+.*amount\s+to\s*:?\s*([\-$0-9.,]+)/i.test(text)) {
     return true;
   }
-  if (/item\s+\d+.*(type|category|date|remarks|name|item)\s+to\s*:?\s*(.+)$/i.test(text)) {
+  if (/item\s+\d+.*(category|date|remarks|name|item)\s+to\s*:?\s*(.+)$/i.test(text)) {
     return true;
   }
-  if (/(?:(?:update|set|change|move)\s+)?items?\s+[\d,\s]+?\s+(?:(?:amount|type|category|date|remarks|name|item)\s+)?to\s+.+$/i.test(text)) {
+  if (/(?:(?:update|set|change|move)\s+)?items?\s+[\d,\s]+?\s+(?:(?:amount|category|date|remarks|name|item)\s+)?to\s+.+$/i.test(text)) {
     return true;
   }
   return false;
@@ -78,6 +74,10 @@ export function recognizesEditInstruction(instruction: string): boolean {
 export class HeuristicVisionProvider implements VisionProvider {
   public async parseImage(_imagePath: string): Promise<ExpenseRow[]> {
     return [];
+  }
+
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
+    return parseImagesSequentially(this, imagePaths);
   }
 
   public async applyEditInstruction(rows: ExpenseRow[], instruction: string): Promise<ExpenseRow[]> {
@@ -100,11 +100,6 @@ export class HeuristicVisionProvider implements VisionProvider {
       }
     }
 
-    const typeMatch = text.match(/item\s+(\d+).*type\s+to\s*:?\s*(income|expense)\s*$/i);
-    if (typeMatch) {
-      return updateByIndex(rows, Number(typeMatch[1]), (row) => ({ ...row, type: typeMatch[2].toLowerCase() as "income" | "expense" }));
-    }
-
     const categoryMatch = text.match(/item\s+(\d+).*category\s+to\s*:?\s*(.+)$/i);
     if (categoryMatch) {
       return updateByIndex(rows, Number(categoryMatch[1]), (row) => ({ ...row, category: categoryMatch[2].trim() }));
@@ -121,7 +116,7 @@ export class HeuristicVisionProvider implements VisionProvider {
     }
 
     const bulkMatch = text.match(
-      /(?:(?:update|set|change|move)\s+)?items?\s+([\d,\s]+?)\s+(?:(amount|type|category|date|remarks|name|item)\s+)?to\s+(.+?)(?:\s+(amount|type|category|date|remarks|name|item))?\s*$/i
+      /(?:(?:update|set|change|move)\s+)?items?\s+([\d,\s]+?)\s+(?:(amount|category|date|remarks|name|item)\s+)?to\s+(.+?)(?:\s+(amount|category|date|remarks|name|item))?\s*$/i
     );
     if (bulkMatch) {
       const indices = parseIndexList(bulkMatch[1]);

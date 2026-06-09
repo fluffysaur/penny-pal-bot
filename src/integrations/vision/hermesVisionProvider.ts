@@ -22,8 +22,7 @@ function coerceRows(rawRows: Record<string, unknown>[]): ExpenseRow[] {
       category: raw.category ? String(raw.category) : undefined,
       date: raw.date ? String(raw.date) : undefined,
       confidence: typeof raw.confidence === "number" ? raw.confidence : undefined,
-      remarks: raw.remarks ? String(raw.remarks) : undefined,
-      type: raw.type === "income" || raw.type === "expense" ? raw.type : undefined
+      remarks: raw.remarks ? String(raw.remarks) : undefined
     });
   }
   return rows;
@@ -134,12 +133,32 @@ async function runHermes(prompt: string, imagePath?: string): Promise<string> {
   return "";
 }
 
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await worker(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 export class HermesVisionProvider implements VisionProvider {
   public async parseImage(imagePath: string): Promise<ExpenseRow[]> {
     const primaryPrompt = [
       "Extract expense rows from the attached image and return ONLY a JSON array.",
       "Each row should include item, amount, date, category, confidence.",
-      "Use negative amounts for refunds/reimbursements/paybacks.",
+      "Keep amount signs exactly as shown in the screenshot. Do not infer income/expense type.",
       "If there are no transactions, return []."
     ].join("\n");
 
@@ -154,7 +173,7 @@ export class HermesVisionProvider implements VisionProvider {
       "Return ONLY a JSON array of best-effort transaction rows, even if confidence is low.",
       "Do not return prose or markdown.",
       "Each row must include item and amount; include date/category/confidence when available.",
-      "Use negative amounts for refunds/reimbursements/paybacks.",
+      "Keep amount signs exactly as shown in the screenshot. Do not infer income/expense type.",
       "If absolutely no transaction-like text exists, return []."
     ].join("\n");
 
@@ -162,12 +181,39 @@ export class HermesVisionProvider implements VisionProvider {
     return coerceRows(extractJsonArray(retryStdout));
   }
 
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
+    if (imagePaths.length <= 1) {
+      return imagePaths.length === 0 ? [] : this.parseImage(imagePaths[0]);
+    }
+
+    const results = await mapWithConcurrency(imagePaths, 2, async (imagePath) => {
+      try {
+        return { rows: await this.parseImage(imagePath) };
+      } catch (error) {
+        console.error("Hermes image parsing failed", error);
+        return { rows: [] as ExpenseRow[], error: error as Error };
+      }
+    });
+
+    const rows = results.flatMap((result) => result.rows);
+    if (rows.length > 0) {
+      return rows;
+    }
+
+    for (let i = results.length - 1; i >= 0; i -= 1) {
+      if (results[i].error) {
+        throw results[i].error;
+      }
+    }
+    return [];
+  }
+
   public async applyEditInstruction(rows: ExpenseRow[], instruction: string): Promise<ExpenseRow[]> {
     const prompt = [
       "You are editing parsed expense rows.",
       "Return ONLY a JSON array.",
-      "Preserve keys: item, amount, date, category, confidence, remarks, type.",
-      "Keep expenses positive and income/refund rows negative.",
+      "Preserve keys: item, amount, date, category, confidence, remarks.",
+      "Do not infer or set income/expense type. Keep amount sign semantics literal.",
       `Instruction: ${instruction}`,
       `Current rows JSON: ${JSON.stringify(rows)}`
     ].join("\n\n");

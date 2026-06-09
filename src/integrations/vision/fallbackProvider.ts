@@ -1,9 +1,13 @@
 import type { ExpenseRow } from "../../types";
-import type { VisionProvider } from "./provider";
+import { parseImagesSequentially, type VisionProvider } from "./provider";
 
 export class FallbackVisionProvider implements VisionProvider {
   public async parseImage(_imagePath: string): Promise<ExpenseRow[]> {
     return [];
+  }
+
+  public async parseImages(imagePaths: string[]): Promise<ExpenseRow[]> {
+    return parseImagesSequentially(this, imagePaths);
   }
 
   public async applyEditInstruction(rows: ExpenseRow[], _instruction: string): Promise<ExpenseRow[]> {

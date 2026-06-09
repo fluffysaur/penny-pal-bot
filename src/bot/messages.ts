@@ -8,8 +8,10 @@ export const messages = {
     "1) item | amount | category | date | remarks\n" +
     "2) item amount category [date] [remarks]\n\n" +
     "Example: Coffee | 4.50 | Food | 2026-05-04 | team lunch",
-  parseInProgress: (label: string) =>
-    `Thanks ${label}! I am reading your transactions now. This can take up to 2 minutes for long receipts. 👀`,
+  parseInProgress: (label: string, imageCount = 1) => {
+    const imageText = imageCount === 1 ? "image" : `${imageCount} images`;
+    return `Thanks ${label}! I am reading your transactions from ${imageText} now. This can take up to 5 minutes for long receipts. 👀`;
+  },
   parseTimedOut:
     "I could not finish reading that image in time 😢. Please retry with a clearer crop or fewer entries.",
   parseNoRows:
