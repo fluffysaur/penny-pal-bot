@@ -11,10 +11,10 @@ import { targetInfoForUser } from "./runtimeHelpers";
 import { clearSession, patchSession, setSession } from "./sessionStore";
 
 const notionClient = new NotionClient(config.notionToken);
-const visionProvider = new CompositeVisionProvider([
-  new HeuristicVisionProvider(),
-  new HermesVisionProvider()
-]);
+const visionProvider = new CompositeVisionProvider(
+  [new HeuristicVisionProvider(), new HermesVisionProvider()],
+  config.processTimeoutSeconds * 1000
+);
 
 export function createBot(): Telegraf {
   const bot = new Telegraf(config.telegramToken, {
